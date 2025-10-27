@@ -164,4 +164,3 @@ func FindUserHandler(w http.ResponseWriter, r *http.Request) {
 
 This project is licensed under the [MIT License](https://www.google.com/search?q=LICENSE).
 
-```
