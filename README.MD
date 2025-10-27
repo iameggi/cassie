@@ -13,7 +13,7 @@ It’s **not a framework** — it’s a collection of production-ready tools des
 
 ---
 
-##  Installation
+##  Installation 
 
 ```bash
 go get github.com/iameggi/cassie
