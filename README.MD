@@ -1,36 +1,37 @@
 # CassieGo Toolkit
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/iameggi/cassie)](https://goreportcard.com/report/github.com/iameggi/cassie)
-[![Go.Dev](https://pkg.go.dev/badge/github.com/iameggi/cassie)](https://pkg.go.dev/github.com/iameggi/cassie)
+[](https://goreportcard.com/report/github.com/iameggi/cassie)
+[](https://pkg.go.dev/github.com/iameggi/cassie)
 
 **CassieGo** is a high-performance modular toolkit for building robust and efficient Go web services.
 
 It’s **not a framework** — it’s a collection of production-ready tools designed to work seamlessly with Go’s standard `net/http` package and popular frameworks like **Gin**, **Chi**, **Echo** and *Etc*.
 
-- **Efficient:** Uses safe, generic object pools to reduce memory allocations and GC load.  
-- **Resilient:** Provides essential middleware for stability, observability, and fault tolerance.  
-- **Modular:** Import only the packages you need.
+  - **Efficient:** Uses safe, generic object pools to reduce memory allocations and GC load.
+  - **Resilient:** Provides essential middleware for stability, observability, and fault tolerance.
+  - **Modular:** Import only the packages you need.
 
----
+-----
 
-##  Installation 
+## Installation
 
 ```bash
 go get github.com/iameggi/cassie
 ```
 
----
+-----
 
 ## 🛠️ Available Packages
 
 ### 1\. `bucket` (Efficient Pooling)
 
-Provides a safe, type-aware wrapper around `sync.Pool` using Go generics (Go 1.18+).  
+Provides a safe, type-aware wrapper around `sync.Pool` using Go generics (Go 1.18+).
 This eliminates unsafe type assertions and common pooling bugs.
 
 **Key Features:**
-- **Type-Safe:** `Get()` returns a `*T` — no type assertions required.  
-- **Auto-Reset:** `Put()` automatically calls your `Reset` function, preventing data leaks between requests.
+
+  - **Type-Safe:** `Get()` returns a `*T` — no type assertions required.
+  - **Auto-Reset:** `Put()` automatically calls your `Reset` function, preventing data leaks between requests.
 
 #### Simple Usage (Built-in Pools)
 
@@ -70,7 +71,7 @@ func resetMyObject(o *MyObject) { o.ID = 0 }
 var myPool = bucket.New(func() *MyObject { return &MyObject{} }, resetMyObject)
 ```
 
----
+-----
 
 ### 2\. `middleware` (Resilient Server Layer)
 
@@ -122,7 +123,7 @@ limiter := middleware.NewLimiter(100)
 handler := limiter.Wrap(myHandler)
 ```
 
----
+-----
 
 ### 3\. `helpers` (Simplified Handlers)
 
@@ -158,10 +159,77 @@ func FindUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
----
+-----
 
-##  License
+### 4\. `weave` (Safe & Fast Concurrency)
+
+This package provides robust tools for safely managing complex goroutines, fully integrated with `context.Context` to prevent resource leaks.
+
+#### `weave.Sail()` (Simple Tasks)
+
+Use `Sail()` for a quick "fan-out/fan-in". It's perfect for running a few (e.g., 2-5) API calls or DB tasks concurrently.
+
+```go
+import "github.com/iameggi/cassie/weave"
+
+func MyHandler(w http.ResponseWriter, r *http.Request) {
+    var user User
+    var orders []Order
+    
+    // r.Context() automatically handles request cancellation
+    err := weave.Sail(r.Context(),
+        func(ctx context.Context) (err error) {
+            user, err = api.GetUser(ctx)
+            return err
+        },
+        func(ctx context.Context) (err error) {
+            orders, err = api.GetOrders(ctx)
+            return err
+        },
+    )
+
+    if err != nil {
+        helpers.SendError(w, http.StatusInternalServerError, "Failed to fetch data")
+        return
+    }
+    // ...
+}
+```
+
+#### `weave.Weaver` (Complex Tasks / Worker Pool)
+
+Use a `Weaver` when you have many tasks (e.g., processing 10,000 items) and need to **limit concurrency** to prevent a "goroutine bomb".
+
+```go
+import "github.com/iameggi/cassie/weave"
+
+func ProcessCSV(ctx context.Context, items []Item) error {
+    // Create a worker pool with 8 goroutines
+    weaver, err := weave.NewWeaver(ctx, 8)
+    if err != nil {
+        return err // Handle invalid concurrency
+    }
+
+    // Add 10,000 tasks
+    for _, item := range items {
+        localItem := item
+        if err := weaver.Add(func(ctx context.Context) error {
+            // Synergy: Use 'bucket' inside 'weave'
+            // to process the item with 0 allocations
+            return processItem(ctx, localItem)
+        }); err != nil {
+            // Weaver was closed, stop adding tasks
+            break 
+        }
+    }
+
+    // Wait for all 8 workers to complete all 10,000 tasks
+    return weaver.Wait()
+}
+```
+
+-----
+
+## License
 
 This project is licensed under the [MIT License](./LICENSE).
-
-
