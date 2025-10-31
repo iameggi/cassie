@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 // Variant represents a product variant used in benchmark data.
@@ -103,5 +105,93 @@ func BenchmarkJSONEncoding_CassieWith(b *testing.B) {
 			_, err := io.Discard.Write(buf.Bytes())
 			return err
 		})
+	})
+}
+
+// BenchmarkJSONEncoding_Standard_Parallel benchmarks JSON encoding (standard lib) under parallel load.
+func BenchmarkJSONEncoding_Standard_Parallel(b *testing.B) {
+	b.ReportAllocs()
+	b.SetParallelism(100) // 100 goroutines concurrently
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			data, err := json.Marshal(largeProductList)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_, _ = io.Discard.Write(data)
+		}
+	})
+}
+
+// BenchmarkJSONEncoding_Cassie_Parallel benchmarks JSON encoding (Cassie pooled buffer) under parallel load.
+func BenchmarkJSONEncoding_Cassie_Parallel(b *testing.B) {
+	b.ReportAllocs()
+	b.SetParallelism(100)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			buf := ByteBucket.Get()
+			buf.Reset()
+			if err := json.NewEncoder(buf).Encode(largeProductList); err != nil {
+				b.Fatal(err)
+			}
+			_, _ = io.Discard.Write(buf.Bytes())
+			ByteBucket.Put(buf)
+		}
+	})
+}
+
+// BenchmarkJSONEncoding_CassieWith_Parallel benchmarks Cassie’s helper-based pooling in parallel.
+func BenchmarkJSONEncoding_CassieWith_Parallel(b *testing.B) {
+	b.ReportAllocs()
+	b.SetParallelism(100)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := WithByteBufferErr(func(buf *bytes.Buffer) error {
+				if err := json.NewEncoder(buf).Encode(largeProductList); err != nil {
+					return err
+				}
+				_, err := io.Discard.Write(buf.Bytes())
+				return err
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkJSONEncoding_Cassie_Jsoniter(b *testing.B) {
+	benchmarkWithLatency(b, func() error {
+		buf := ByteBucket.Get()
+		defer ByteBucket.Put(buf)
+		buf.Reset()
+		if err := jsoniter.NewEncoder(buf).Encode(largeProductList); err != nil {
+			return err
+		}
+		_, _ = io.Discard.Write(buf.Bytes())
+		return nil
+	})
+}
+
+func BenchmarkJSONEncoding_Cassie_JsoniterPooled(b *testing.B) {
+	json := jsoniter.Config{
+		EscapeHTML:             true,
+		SortMapKeys:            false,
+		ValidateJsonRawMessage: false,
+	}.Froze()
+	benchmarkWithLatency(b, func() error {
+		buf := ByteBucket.Get()
+		defer ByteBucket.Put(buf)
+		buf.Reset()
+
+		stream := json.BorrowStream(buf)
+		stream.WriteVal(largeProductList)
+		if stream.Error != nil {
+			return stream.Error
+		}
+		stream.Flush()
+		json.ReturnStream(stream)
+		_, _ = io.Discard.Write(buf.Bytes())
+		return nil
 	})
 }
